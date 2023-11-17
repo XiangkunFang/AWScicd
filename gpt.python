@@ -1,0 +1,82 @@
+# import json
+
+# def lambda_handler(event, context):
+#     # TODO implement
+#     return {
+#         'statusCode': 200,
+#         'body': json.dumps('Hello from Lambda!')
+#     }
+
+
+import requests
+import json
+import boto3
+from datetime import datetime
+
+url = 'https://3.142.93.26:8443/'
+headers = {'content-type': 'application/json'}
+# 初始化 S3 客户端
+s3_client = boto3.client('s3')
+# 初始化 DynamoDB 客户端
+dynamodb = boto3.resource('dynamodb')
+table = dynamodb.Table('GPT_DB')
+
+def lambda_handler(event, context):
+    # TODO implement
+    message = event['message']
+    username = event['username']
+    ask_time_stamp = datetime.now().replace(microsecond=0)
+
+    response = requests.post(
+        url, 
+        data=json.dumps({'message': message}), 
+        headers=headers, 
+        verify=False
+    )
+    answer_time_stamp = datetime.now().replace(microsecond=0)
+    reply_message = {
+        'Username:': username,
+        'User:' : message,
+        'User Time Stamp:': str(ask_time_stamp),
+        'AI:': response.json()['message'],
+        'AI Time Stamp:': str(answer_time_stamp)
+    }
+    
+        # 设置S3桶名和对象键名
+    bucket_name = 'fangxiangkun.bucket.emr'
+    object_key = 'data/{}_{}.json'.format(username,ask_time_stamp)
+    
+    try:
+        # 将JSON数据上传到S3
+        response_bytes = json.dumps(reply_message).encode('utf-8')
+        s3_client.put_object(Bucket=bucket_name, Key=object_key, Body=response_bytes)
+
+    except Exception as e:
+        print(e)
+        return {
+            'statusCode': 500,
+            'message': json.dumps('Error writing JSON data to S3.')
+        }
+    
+    try:
+        # 写入数据到 DynamoDB
+        response = table.put_item(Item=
+                                {
+                                    'username':username,
+                                    'timestamp':str(ask_time_stamp),
+                                    'content':json.dumps(reply_message)
+                                }
+                                )
+        
+    except Exception as e:
+        print(e)
+        return {
+            'statusCode': 500,
+            'message': json.dumps("Error writing to DynamoDB")
+        }
+    
+    
+    return {
+        'statusCode': 200,
+        'message': json.dumps('AI:'+reply_message['AI:'])
+    }
